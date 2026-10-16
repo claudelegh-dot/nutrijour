@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>NutriJour</title>
+  <meta name="description" content="Journal alimentaire : calories, macros, eau, exercices et poids.">
+  <meta name="theme-color" content="#1f8a4c">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="datenav" id="datenav">
+      <button class="icon-btn" data-action="prev-day" aria-label="Jour précédent">‹</button>
+      <button class="date-label" data-action="today" id="date-label">Aujourd'hui</button>
+      <button class="icon-btn" data-action="next-day" aria-label="Jour suivant">›</button>
+    </div>
+    <h1 class="view-title" id="view-title" hidden></h1>
+  </header>
+
+  <main>
+    <section id="view-journal" class="view">
+      <div class="card summary" id="summary"></div>
+      <div id="meals"></div>
+      <div class="card" id="exercise-card"></div>
+      <div class="card" id="water-card"></div>
+    </section>
+
+    <section id="view-progress" class="view" hidden>
+      <div class="card">
+        <h2>Poids</h2>
+        <form id="weight-form" class="row-form">
+          <input type="date" name="date" required aria-label="Date">
+          <input type="number" name="kg" step="0.1" min="25" max="350" placeholder="kg" required aria-label="Poids en kg">
+          <button class="btn primary" type="submit">Ajouter</button>
+        </form>
+        <div id="weight-chart" class="chart"></div>
+        <ul class="list" id="weight-list"></ul>
+      </div>
+      <div class="card">
+        <h2>Calories, 7 derniers jours</h2>
+        <div id="kcal-chart" class="chart"></div>
+      </div>
+    </section>
+
+    <section id="view-profile" class="view" hidden>
+      <div class="card notice" id="onboarding" hidden>
+        Bienvenue ! Renseigne ton profil pour calculer ton objectif calorique.
+      </div>
+      <form class="card" id="profile-form">
+        <h2>Mon profil</h2>
+        <fieldset class="seg">
+          <legend>Sexe</legend>
+          <label><input type="radio" name="sex" value="f" required> Femme</label>
+          <label><input type="radio" name="sex" value="m"> Homme</label>
+        </fieldset>
+        <div class="grid3">
+          <label>Âge<input type="number" name="age" min="14" max="100" required></label>
+          <label>Taille (cm)<input type="number" name="height" min="120" max="230" required></label>
+          <label>Poids (kg)<input type="number" name="weight" step="0.1" min="25" max="350" required></label>
+        </div>
+        <label>Niveau d'activité<select name="activity" id="activity-select"></select></label>
+        <label>Objectif<select name="goal" id="goal-select"></select></label>
+
+        <h3>Répartition des macros (% des calories)</h3>
+        <div class="grid3">
+          <label>Glucides<input type="number" name="carbsPct" min="5" max="80" required></label>
+          <label>Protéines<input type="number" name="proteinPct" min="5" max="60" required></label>
+          <label>Lipides<input type="number" name="fatPct" min="10" max="70" required></label>
+        </div>
+        <p class="hint" id="macro-sum"></p>
+
+        <div class="grid2">
+          <label>Objectif d'eau (ml)<input type="number" name="water" min="500" max="6000" step="250" required></label>
+          <label class="check"><input type="checkbox" name="eatBack"> Ajouter les calories d'exercice à mon objectif</label>
+        </div>
+
+        <div class="computed" id="computed"></div>
+        <button class="btn primary wide" type="submit">Enregistrer</button>
+      </form>
+
+      <div class="card">
+        <h2>Mes données</h2>
+        <p class="hint">Tout est stocké sur cet appareil uniquement. Exporte une sauvegarde de temps en temps.</p>
+        <div class="btn-row">
+          <button class="btn" data-action="export">Exporter (.json)</button>
+          <button class="btn" data-action="import">Importer</button>
+          <button class="btn danger" data-action="reset">Tout effacer</button>
+        </div>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+        <p class="hint small">
+          Aliments génériques : <a href="https://ciqual.anses.fr" target="_blank" rel="noopener">table Ciqual 2020 de l'Anses</a> (Licence Ouverte Etalab).
+          Produits par code-barres : <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a> (licence ODbL).
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button data-action="tab" data-view="journal" class="active"><span aria-hidden="true">📖</span>Journal</button>
+    <button data-action="tab" data-view="progress"><span aria-hidden="true">📈</span>Progrès</button>
+    <button data-action="tab" data-view="profile"><span aria-hidden="true">👤</span>Profil</button>
+  </nav>
+
+  <!-- Ajouter un aliment -->
+  <dialog id="sheet-add" class="sheet">
+    <div class="sheet-head">
+      <h2 id="add-title">Ajouter</h2>
+      <button class="icon-btn" data-action="close" aria-label="Fermer">✕</button>
+    </div>
+    <div class="tabs">
+      <button data-action="add-tab" data-tab="search" class="active">Rechercher</button>
+      <button data-action="add-tab" data-tab="barcode">Code-barres</button>
+      <button data-action="add-tab" data-tab="manual">Manuel</button>
+    </div>
+
+    <div class="add-pane" data-pane="search">
+      <form id="search-form" class="row-form">
+        <input type="search" name="q" placeholder="ex. pomme, riz cuit, poulet…" autocomplete="off" aria-label="Aliment à rechercher">
+        <button class="btn primary" type="submit">Chercher</button>
+      </form>
+      <p class="hint" id="search-status"></p>
+      <ul class="list results" id="search-results"></ul>
+    </div>
+
+    <div class="add-pane" data-pane="barcode" hidden>
+      <div id="scan-box" class="scan-box" hidden>
+        <video id="scan-video" playsinline muted></video>
+        <div class="scan-frame"></div>
+      </div>
+      <button class="btn primary wide" data-action="scan-start" id="scan-btn">Scanner avec la caméra</button>
+      <p class="hint" id="scan-status"></p>
+      <form id="barcode-form" class="row-form">
+        <input type="text" name="code" inputmode="numeric" pattern="[0-9]{6,14}" placeholder="ou tape le code (ex. 3017620422003)" aria-label="Code-barres">
+        <button class="btn" type="submit">Chercher</button>
+      </form>
+    </div>
+
+    <div class="add-pane" data-pane="manual" hidden>
+      <form id="manual-form" class="stack">
+        <label>Nom<input name="name" required maxlength="80" placeholder="ex. Pâtes maison"></label>
+        <p class="hint">Valeurs pour 100 g</p>
+        <div class="grid4">
+          <label>kcal<input type="number" name="kcal" min="0" max="900" step="any" required></label>
+          <label>Glucides<input type="number" name="c" min="0" max="100" step="any" value="0"></label>
+          <label>Protéines<input type="number" name="p" min="0" max="100" step="any" value="0"></label>
+          <label>Lipides<input type="number" name="f" min="0" max="100" step="any" value="0"></label>
+        </div>
+        <button class="btn primary wide" type="submit">Continuer</button>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Détail / quantité d'un aliment -->
+  <dialog id="sheet-food" class="sheet">
+    <div class="sheet-head">
+      <h2 id="food-title"></h2>
+      <button class="icon-btn" data-action="close" aria-label="Fermer">✕</button>
+    </div>
+    <p class="hint" id="food-brand"></p>
+    <form id="food-form" class="stack">
+      <div class="grid2">
+        <label>Quantité (g)<input type="number" name="grams" min="1" max="5000" step="any" required></label>
+        <label>Repas<select name="meal" id="food-meal"></select></label>
+      </div>
+      <div class="chips" id="food-chips"></div>
+      <div class="macro-grid" id="food-macros"></div>
+      <div class="btn-row">
+        <button class="btn danger" type="button" data-action="delete-entry" id="food-delete" hidden>Supprimer</button>
+        <button class="btn primary grow" type="submit" id="food-submit">Ajouter</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Exercice -->
+  <dialog id="sheet-exercise" class="sheet">
+    <div class="sheet-head">
+      <h2>Ajouter un exercice</h2>
+      <button class="icon-btn" data-action="close" aria-label="Fermer">✕</button>
+    </div>
+    <form id="exercise-form" class="stack">
+      <label>Activité<select name="type" id="exercise-select"></select></label>
+      <label id="exercise-name-wrap" hidden>Nom<input name="name" maxlength="60" placeholder="ex. Escalade"></label>
+      <div class="grid2">
+        <label>Durée (min)<input type="number" name="minutes" min="1" max="600" value="30" required></label>
+        <label>Calories brûlées<input type="number" name="kcal" min="0" max="5000" required></label>
+      </div>
+      <p class="hint" id="exercise-hint"></p>
+      <button class="btn primary wide" type="submit">Ajouter</button>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
