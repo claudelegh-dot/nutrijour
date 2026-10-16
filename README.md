@@ -3,6 +3,10 @@
 Journal alimentaire en application web installable (PWA) : calories et macros par repas,
 objectif calculé (Mifflin-St Jeor), eau, exercices, suivi du poids.
 
+- Ajout rapide de calories, copie d'un repas d'un jour à l'autre, repas enregistrés.
+- « Terminer ma journée » : poids estimé dans 5 semaines si chaque jour ressemblait à celui-ci.
+- Série de jours de saisie d'affilée.
+
 - HTML / CSS / JavaScript, sans dépendance ni compte.
 - Les données restent sur l'appareil (`localStorage`). Export / import JSON dans l'onglet Profil.
 - Fonctionne hors ligne (service worker), sauf la recherche par code-barres.

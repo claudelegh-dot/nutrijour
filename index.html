@@ -27,6 +27,7 @@
       <div id="meals"></div>
       <div class="card" id="exercise-card"></div>
       <div class="card" id="water-card"></div>
+      <div class="card" id="complete-card" hidden></div>
     </section>
 
     <section id="view-progress" class="view" hidden>
@@ -112,7 +113,8 @@
       <button class="icon-btn" data-action="close" aria-label="Fermer">✕</button>
     </div>
     <div class="tabs">
-      <button data-action="add-tab" data-tab="search" class="active">Rechercher</button>
+      <button data-action="add-tab" data-tab="search" class="active">Recherche</button>
+      <button data-action="add-tab" data-tab="saved">Mes repas</button>
       <button data-action="add-tab" data-tab="barcode">Code-barres</button>
       <button data-action="add-tab" data-tab="manual">Manuel</button>
     </div>
@@ -124,6 +126,11 @@
       </form>
       <p class="hint" id="search-status"></p>
       <ul class="list results" id="search-results"></ul>
+    </div>
+
+    <div class="add-pane" data-pane="saved" hidden>
+      <p class="hint" id="saved-status"></p>
+      <ul class="list results" id="saved-results"></ul>
     </div>
 
     <div class="add-pane" data-pane="barcode" hidden>
@@ -140,6 +147,8 @@
     </div>
 
     <div class="add-pane" data-pane="manual" hidden>
+      <button class="btn wide" data-action="quick-open">⚡ Ajout rapide (calories seulement)</button>
+      <h3>Ou créer un aliment</h3>
       <form id="manual-form" class="stack">
         <label>Nom<input name="name" required maxlength="80" placeholder="ex. Pâtes maison"></label>
         <p class="hint">Valeurs pour 100 g</p>
@@ -191,6 +200,77 @@
       <p class="hint" id="exercise-hint"></p>
       <button class="btn primary wide" type="submit">Ajouter</button>
     </form>
+  </dialog>
+
+  <!-- Ajout rapide (calories sans aliment) -->
+  <dialog id="sheet-quick" class="sheet">
+    <div class="sheet-head">
+      <h2 id="quick-title">Ajout rapide</h2>
+      <button class="icon-btn" data-action="close" aria-label="Fermer">✕</button>
+    </div>
+    <p class="hint">Pour noter des calories sans chercher l'aliment : restaurant, plat estimé…</p>
+    <form id="quick-form" class="stack">
+      <label>Description (facultatif)<input name="name" maxlength="80" placeholder="ex. Déjeuner au restaurant"></label>
+      <div class="grid2">
+        <label>Calories (kcal)<input type="number" name="kcal" min="1" max="5000" step="any" required></label>
+        <label>Repas<select name="meal" id="quick-meal"></select></label>
+      </div>
+      <p class="hint">Macros en grammes (facultatif)</p>
+      <div class="grid3">
+        <label>Glucides<input type="number" name="c" min="0" max="1000" step="any"></label>
+        <label>Protéines<input type="number" name="p" min="0" max="1000" step="any"></label>
+        <label>Lipides<input type="number" name="f" min="0" max="1000" step="any"></label>
+      </div>
+      <div class="btn-row">
+        <button class="btn danger" type="button" data-action="delete-quick" id="quick-delete" hidden>Supprimer</button>
+        <button class="btn primary grow" type="submit" id="quick-submit">Ajouter</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Options d'un repas : copier, enregistrer, vider -->
+  <dialog id="sheet-meal" class="sheet">
+    <div class="sheet-head">
+      <h2 id="meal-title"></h2>
+      <button class="icon-btn" data-action="close" aria-label="Fermer">✕</button>
+    </div>
+    <p class="hint" id="meal-sub"></p>
+    <div class="menu meal-pane" data-pane="menu">
+      <button class="menu-item" data-action="meal-quick">⚡ Ajout rapide de calories</button>
+      <button class="menu-item" data-action="meal-pane" data-pane="from">📥 Copier depuis un autre jour</button>
+      <button class="menu-item" data-action="meal-pane" data-pane="to" data-needs-items>📤 Copier vers un autre jour</button>
+      <button class="menu-item" data-action="meal-pane" data-pane="save" data-needs-items>⭐ Enregistrer comme repas</button>
+      <button class="menu-item danger" data-action="meal-clear" data-needs-items>🗑 Vider ce repas</button>
+    </div>
+    <form id="copy-form" class="stack meal-pane" data-pane="copy" hidden>
+      <div class="grid2">
+        <label><span id="copy-date-label">Jour</span><input type="date" name="date" required></label>
+        <label><span id="copy-meal-label">Repas</span><select name="meal" id="copy-meal"></select></label>
+      </div>
+      <p class="hint" id="copy-preview"></p>
+      <div class="btn-row">
+        <button class="btn" type="button" data-action="meal-pane" data-pane="menu">Retour</button>
+        <button class="btn primary grow" type="submit" id="copy-submit">Copier</button>
+      </div>
+    </form>
+    <form id="save-meal-form" class="stack meal-pane" data-pane="save" hidden>
+      <label>Nom du repas<input name="name" required maxlength="60" placeholder="ex. Mon petit-déj habituel"></label>
+      <p class="hint" id="save-preview"></p>
+      <div class="btn-row">
+        <button class="btn" type="button" data-action="meal-pane" data-pane="menu">Retour</button>
+        <button class="btn primary grow" type="submit">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Fin de journée : projection -->
+  <dialog id="sheet-complete" class="sheet">
+    <div class="sheet-head">
+      <h2>Journée terminée</h2>
+      <button class="icon-btn" data-action="close" aria-label="Fermer">✕</button>
+    </div>
+    <div id="complete-body"></div>
+    <button class="btn primary wide" data-action="close">OK</button>
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

@@ -1,6 +1,6 @@
 // Service worker : met l'app en cache pour qu'elle s'ouvre sans réseau.
 // Les appels à Open Food Facts passent toujours par le réseau.
-const CACHE = 'nutrijour-v3';
+const CACHE = 'nutrijour-v4';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'ciqual.json', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

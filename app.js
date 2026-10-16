@@ -74,7 +74,7 @@ function toast(msg) {
 }
 
 // ---------- état ----------
-function emptyState() { return { profile: null, days: {}, weights: [], recents: [] }; }
+function emptyState() { return { profile: null, days: {}, weights: [], recents: [], savedMeals: [] }; }
 
 function load() {
   try {
@@ -144,6 +144,39 @@ function dayBalance(key) {
   return { eaten, burned, counted, base: t?.kcal ?? 2000, goal, remaining: goal - eaten };
 }
 
+// série : jours consécutifs avec au moins un aliment noté (aujourd'hui vide ne casse pas la série)
+const MILESTONES = [3, 5, 7, 10, 14, 21, 30, 50, 75, 100, 150, 200, 365];
+
+function streak() {
+  const today = ymd(new Date());
+  let k = state.days[today]?.foods.length ? today : addDays(today, -1);
+  let n = 0;
+  while (state.days[k]?.foods.length) { n++; k = addDays(k, -1); }
+  return n;
+}
+
+// à appeler après un ajout, avec la série mesurée avant l'ajout
+function celebrate(before) {
+  const after = streak();
+  if (after <= before || !MILESTONES.includes(after)) return;
+  const next = MILESTONES.find(m => m > after);
+  setTimeout(() => toast(`🔥 ${after} jours de saisie d'affilée !${next ? ` Prochain palier : ${next} jours.` : ''}`), 1400);
+}
+
+// « si chaque jour ressemblait à celui-ci » : poids estimé dans 5 semaines
+function projection(key) {
+  const t = targets();
+  if (!t) return null;
+  const b = dayBalance(key);
+  const spent = t.tdee + b.counted;
+  const now = latestWeight();
+  return {
+    eaten: b.eaten, spent, now,
+    kg: now + (b.eaten - spent) * 35 / 7700,
+    floor: state.profile.sex === 'm' ? 1500 : 1200,
+  };
+}
+
 // ============================================================
 //  Rendu
 // ============================================================
@@ -205,17 +238,19 @@ function renderJournal() {
         ${macroRow('macro-f', 'Lipides', tot.f, t?.f)}
       </div>
     </div>
-    ${t ? '' : `<p class="hint setup">Objectif par défaut de 2 000 kcal. <button class="link-btn" data-action="tab" data-view="profile">Calculer mon objectif</button></p>`}`;
+    ${t ? '' : `<p class="hint setup">Objectif par défaut de 2 000 kcal. <button class="link-btn" data-action="tab" data-view="profile">Calculer mon objectif</button></p>`}
+    ${(n => n ? `<p class="streak">🔥 Série : <b>${n} jour${n > 1 ? 's' : ''}</b> de saisie d'affilée</p>` : '')(streak())}`;
 
   // repas
   $('#meals').innerHTML = MEALS.map(([id, label]) => {
     const items = d.foods.filter(e => e.meal === id);
     const kcal = totals(items).kcal;
     return `<div class="card meal">
-      <div class="meal-head"><h2>${label}</h2><span>${fmt(kcal)} kcal</span></div>
+      <div class="meal-head"><h2>${label}</h2><span class="meal-kcal">${fmt(kcal)} kcal
+        <button class="icon-btn" data-action="meal-menu" data-meal="${id}" aria-label="Options : ${label}">⋯</button></span></div>
       <ul class="list">${items.map(e => `<li>
         <button class="entry" data-action="edit-entry" data-id="${e.id}">
-          <span class="name">${esc(e.name)}<span class="sub">${e.brand ? esc(e.brand) + ' · ' : ''}${fmt(e.grams)} g</span></span>
+          <span class="name">${esc(e.name)}<span class="sub">${e.quick ? 'Ajout rapide' : `${e.brand ? esc(e.brand) + ' · ' : ''}${fmt(e.grams)} g`}</span></span>
           <span class="kcal">${fmt(nutr(e.per100, e.grams).kcal)}</span>
         </button></li>`).join('')}</ul>
       <button class="link-btn" data-action="add-food" data-meal="${id}">+ Ajouter un aliment</button>
@@ -247,6 +282,37 @@ function renderJournal() {
       <button class="btn" data-action="water" data-ml="250">+ 250 ml</button>
       <button class="btn" data-action="water" data-ml="500">+ 500 ml</button>
     </div>`;
+
+  // fin de journée
+  const cc = $('#complete-card');
+  cc.hidden = !d.foods.length;
+  cc.innerHTML = d.completed
+    ? `<div class="meal-head"><h2>✓ Journée terminée</h2><button class="link-btn" data-action="complete-show">Voir la projection</button></div>`
+    : `<button class="btn primary wide" data-action="complete-day">Terminer ma journée</button>
+       <p class="hint">Fais le point : où t'amènerait une journée comme celle-ci, répétée pendant 5 semaines ?</p>`;
+}
+
+function showCompletion() {
+  const p = projection(current);
+  const when = current === ymd(new Date()) ? "aujourd'hui" : 'cette journée';
+  let html;
+  if (!p) {
+    html = `<p>Renseigne ton profil pour obtenir une projection de poids.</p>
+      <button class="btn wide" data-action="tab" data-view="profile">Remplir mon profil</button>`;
+  } else if (p.eaten < p.floor) {
+    html = `<p>Tu as noté <b>${fmt(p.eaten)} kcal</b>, moins que le minimum conseillé de ${fmt(p.floor)} kcal.</p>
+      <p class="hint">Si tu n'as pas tout noté, ajoute les aliments manquants. Manger aussi peu de façon régulière
+      n'est pas recommandé sans suivi médical : pas de projection pour cette journée.</p>`;
+  } else {
+    const diff = p.kg - p.now;
+    html = `<p>Si chaque jour ressemblait à ${when}, dans 5 semaines tu pèserais environ</p>
+      <p class="big">${fmt(p.kg, 1)} kg</p>
+      <p class="hint">Soit ${diff > 0 ? '+' : ''}${fmt(diff, 1)} kg par rapport à ton poids actuel (${fmt(p.now, 1)} kg).
+      Calcul : ${fmt(p.eaten)} kcal mangées − ${fmt(p.spent)} kcal dépensées (métabolisme, activité${p.spent > targets().tdee + 0.5 ? ', exercice' : ''})
+      = ${p.eaten - p.spent > 0 ? '+' : ''}${fmt(p.eaten - p.spent)} kcal par jour, avec 7 700 kcal ≈ 1 kg. C'est une estimation : le poids réel varie.</p>`;
+  }
+  $('#complete-body').innerHTML = html;
+  $('#sheet-complete').showModal();
 }
 
 // ---------- progrès ----------
@@ -375,6 +441,7 @@ function switchAddTab(tab) {
   $$('#sheet-add .tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   $$('#sheet-add .add-pane').forEach(p => { p.hidden = p.dataset.pane !== tab; });
   if (tab !== 'barcode') stopScan();
+  if (tab === 'saved') renderSaved();
   if (tab === 'barcode') {
     const can = 'BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia && window.isSecureContext;
     $('#scan-btn').hidden = !can;
@@ -580,14 +647,166 @@ function submitFood(e) {
     if (entry) Object.assign(entry, { grams, meal });
     toast('Entrée modifiée');
   } else {
+    const before = streak();
     d.foods.push({ id: uid(), meal, name: food.name, brand: food.brand || '', code: food.code || null, grams, per100: food.per100 });
     toast(`${food.name} ajouté à : ${mealLabel(meal)}`);
+    celebrate(before);
   }
   rememberRecent(food, grams);
   save();
   $('#sheet-food').close();
   $('#sheet-add').close();
   renderJournal();
+}
+
+// ============================================================
+//  Ajout rapide : des calories sans aliment
+// ============================================================
+let quickId = null;
+
+function openQuick(meal, entry = null) {
+  quickId = entry?.id ?? null;
+  const f = $('#quick-form');
+  f.reset();
+  f.meal.value = entry?.meal ?? meal;
+  if (entry) {
+    f.name.value = entry.name === 'Ajout rapide' ? '' : entry.name;
+    f.kcal.value = round(entry.per100.kcal, 1);
+    for (const k of ['c', 'p', 'f']) f[k].value = entry.per100[k] ? round(entry.per100[k], 1) : '';
+  }
+  $('#quick-title').textContent = entry ? 'Modifier l\'ajout rapide' : 'Ajout rapide';
+  $('#quick-submit').textContent = entry ? 'Enregistrer' : 'Ajouter';
+  $('#quick-delete').hidden = !entry;
+  $('#sheet-quick').showModal();
+}
+
+function submitQuick(e) {
+  e.preventDefault();
+  const f = e.target;
+  const kcal = num(f.kcal.value);
+  if (!kcal || kcal <= 0) return;
+  // stocké comme un aliment de 100 g : les calculs du journal restent les mêmes
+  const per100 = { kcal, c: num(f.c.value) ?? 0, p: num(f.p.value) ?? 0, f: num(f.f.value) ?? 0 };
+  const name = f.name.value.trim() || 'Ajout rapide';
+  const meal = f.meal.value;
+  const d = dayWrite();
+  const entry = quickId && d.foods.find(x => x.id === quickId);
+  if (entry) {
+    Object.assign(entry, { name, meal, per100 });
+    toast('Entrée modifiée');
+  } else {
+    const before = streak();
+    d.foods.push({ id: uid(), meal, name, brand: '', code: null, grams: 100, per100, quick: true });
+    toast(`${fmt(kcal)} kcal ajoutées à : ${mealLabel(meal)}`);
+    celebrate(before);
+  }
+  save();
+  $('#sheet-quick').close();
+  $('#sheet-add').close();
+  renderJournal();
+}
+
+// ============================================================
+//  Repas : copier, enregistrer, vider
+// ============================================================
+let mealCtx = { meal: 'breakfast', mode: 'from' };
+
+const mealItems = (key, meal) => dayRead(key).foods.filter(e => e.meal === meal);
+const itemsSummary = items => `${items.length} aliment${items.length > 1 ? 's' : ''} · ${fmt(totals(items).kcal)} kcal`;
+
+function openMealMenu(meal) {
+  mealCtx = { meal, mode: 'from' };
+  const items = mealItems(current, meal);
+  $('#meal-title').textContent = mealLabel(meal);
+  $('#meal-sub').textContent = `${dateLabel(current)} · ${items.length ? itemsSummary(items) : 'vide'}`;
+  $$('#sheet-meal [data-needs-items]').forEach(b => { b.disabled = !items.length; });
+  showMealPane('menu');
+  $('#sheet-meal').showModal();
+}
+
+function showMealPane(pane) {
+  const f = $('#copy-form');
+  if (pane === 'from' || pane === 'to') {
+    mealCtx.mode = pane;
+    f.date.value = addDays(current, pane === 'from' ? -1 : 1);
+    f.meal.value = mealCtx.meal;
+    $('#copy-date-label').textContent = pane === 'from' ? 'Copier depuis le' : 'Copier vers le';
+    $('#copy-meal-label').textContent = pane === 'from' ? 'Repas source' : 'Dans le repas';
+    updateCopyPreview();
+    pane = 'copy';
+  }
+  if (pane === 'save') {
+    const sf = $('#save-meal-form');
+    sf.reset();
+    $('#save-preview').textContent = itemsSummary(mealItems(current, mealCtx.meal));
+  }
+  $$('#sheet-meal .meal-pane').forEach(p => { p.hidden = p.dataset.pane !== pane; });
+  if (pane === 'save') $('#save-meal-form').name.focus();
+}
+
+function updateCopyPreview() {
+  const f = $('#copy-form');
+  const date = f.date.value;
+  let text = '', ok = !!date;
+  if (date && mealCtx.mode === 'from') {
+    const src = mealItems(date, f.meal.value);
+    ok = src.length > 0;
+    text = ok ? `${itemsSummary(src)} à ajouter à : ${mealLabel(mealCtx.meal)} (${dateLabel(current).toLowerCase()}).`
+      : `Rien à copier : ${mealLabel(f.meal.value).toLowerCase()} vide ce jour-là.`;
+  } else if (date) {
+    text = `${itemsSummary(mealItems(current, mealCtx.meal))} à ajouter à : ${mealLabel(f.meal.value)} (${dateLabel(date).toLowerCase()}).`;
+  }
+  $('#copy-preview').textContent = text;
+  $('#copy-submit').disabled = !ok;
+}
+
+function copyEntries(fromKey, fromMeal, toKey, toMeal) {
+  const src = mealItems(fromKey, fromMeal);
+  dayWrite(toKey).foods.push(...src.map(e => ({ ...e, id: uid(), meal: toMeal, per100: { ...e.per100 } })));
+  return src.length;
+}
+
+function submitCopy(e) {
+  e.preventDefault();
+  const f = e.target;
+  if (!f.date.value) return;
+  const before = streak();
+  const n = mealCtx.mode === 'from'
+    ? copyEntries(f.date.value, f.meal.value, current, mealCtx.meal)
+    : copyEntries(current, mealCtx.meal, f.date.value, f.meal.value);
+  if (!n) return;
+  save();
+  $('#sheet-meal').close();
+  toast(`${n} aliment${n > 1 ? 's' : ''} copié${n > 1 ? 's' : ''}`);
+  celebrate(before);
+  renderJournal();
+}
+
+function submitSaveMeal(e) {
+  e.preventDefault();
+  const name = e.target.name.value.trim();
+  const items = mealItems(current, mealCtx.meal);
+  if (!name || !items.length) return;
+  state.savedMeals = [
+    { id: uid(), name, items: items.map(({ id, meal, ...rest }) => ({ ...rest, per100: { ...rest.per100 } })) },
+    ...state.savedMeals,
+  ];
+  save();
+  $('#sheet-meal').close();
+  toast(`Repas « ${name} » enregistré : retrouve-le dans Ajouter › Mes repas`);
+}
+
+function renderSaved() {
+  const list = state.savedMeals;
+  $('#saved-status').textContent = list.length
+    ? 'Touche un repas pour ajouter tous ses aliments.'
+    : "Aucun repas enregistré. Dans le journal, ouvre le menu ⋯ d'un repas puis « Enregistrer comme repas ».";
+  $('#saved-results').innerHTML = list.map((m, i) => `<li><div class="entry">
+    <button class="entry-main" data-action="pick-saved" data-idx="${i}">
+      <span class="name">${esc(m.name)}<span class="sub">${itemsSummary(m.items)}</span></span>
+    </button>
+    <button class="icon-btn" data-action="del-saved" data-idx="${i}" aria-label="Supprimer ${esc(m.name)}">✕</button>
+  </div></li>`).join('');
 }
 
 // ============================================================
@@ -632,7 +851,7 @@ const actions = {
   'prev-day': () => { current = addDays(current, -1); renderJournal(); },
   'next-day': () => { current = addDays(current, 1); renderJournal(); },
   'today': () => { current = ymd(new Date()); renderJournal(); },
-  'tab': el => { view = el.dataset.view; render(); window.scrollTo(0, 0); },
+  'tab': el => { $$('dialog[open]').forEach(d => d.close()); view = el.dataset.view; render(); window.scrollTo(0, 0); },
   'add-food': el => openAdd(el.dataset.meal),
   'add-tab': el => switchAddTab(el.dataset.tab),
   'pick-result': el => openFood(results[+el.dataset.idx]),
@@ -641,8 +860,56 @@ const actions = {
   'qty': el => { $('#food-form').grams.value = el.dataset.g; updateFoodMacros(); },
   'edit-entry': el => {
     const entry = dayRead().foods.find(x => x.id === el.dataset.id);
-    if (entry) openFood({ name: entry.name, brand: entry.brand, code: entry.code, per100: entry.per100 }, entry);
+    if (entry?.quick) openQuick(entry.meal, entry);
+    else if (entry) openFood({ name: entry.name, brand: entry.brand, code: entry.code, per100: entry.per100 }, entry);
   },
+  'quick-open': () => openQuick(addMeal),
+  'delete-quick': () => {
+    const d = dayWrite();
+    d.foods = d.foods.filter(x => x.id !== quickId);
+    save();
+    $('#sheet-quick').close();
+    toast('Entrée supprimée');
+    renderJournal();
+  },
+  'meal-menu': el => openMealMenu(el.dataset.meal),
+  'meal-pane': el => showMealPane(el.dataset.pane),
+  'meal-quick': () => { $('#sheet-meal').close(); openQuick(mealCtx.meal); },
+  'meal-clear': () => {
+    const label = mealLabel(mealCtx.meal);
+    if (!confirm(`Supprimer tous les aliments de : ${label} (${dateLabel(current).toLowerCase()}) ?`)) return;
+    const d = dayWrite();
+    d.foods = d.foods.filter(x => x.meal !== mealCtx.meal);
+    save();
+    $('#sheet-meal').close();
+    toast(`${label} vidé`);
+    renderJournal();
+  },
+  'pick-saved': el => {
+    const m = state.savedMeals[+el.dataset.idx];
+    if (!m) return;
+    const before = streak();
+    dayWrite().foods.push(...m.items.map(x => ({ ...x, id: uid(), meal: addMeal, per100: { ...x.per100 } })));
+    save();
+    $('#sheet-add').close();
+    toast(`${m.name} ajouté à : ${mealLabel(addMeal)}`);
+    celebrate(before);
+    renderJournal();
+  },
+  'del-saved': el => {
+    const m = state.savedMeals[+el.dataset.idx];
+    if (!m || !confirm(`Supprimer le repas enregistré « ${m.name} » ?`)) return;
+    state.savedMeals = state.savedMeals.filter(x => x !== m);
+    save();
+    renderSaved();
+  },
+  'complete-day': () => {
+    dayWrite().completed = true;
+    save();
+    renderJournal();
+    showCompletion();
+  },
+  'complete-show': () => showCompletion(),
   'delete-entry': () => {
     const d = dayWrite();
     d.foods = d.foods.filter(x => x.id !== detail.entryId);
@@ -699,7 +966,8 @@ function syncProfileWeight() {
 function init() {
   $('#activity-select').innerHTML = ACTIVITY.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
   $('#goal-select').innerHTML = GOALS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
-  $('#food-meal').innerHTML = MEALS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  const mealOptions = MEALS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  for (const id of ['#food-meal', '#quick-meal', '#copy-meal']) $(id).innerHTML = mealOptions;
   $('#exercise-select').innerHTML = EXERCISES.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
 
   document.addEventListener('click', e => {
@@ -756,6 +1024,11 @@ function init() {
   $('#food-form').addEventListener('submit', submitFood);
   $('#food-form').grams.addEventListener('input', updateFoodMacros);
   $('#sheet-food').addEventListener('close', () => { detail = null; });
+
+  $('#quick-form').addEventListener('submit', submitQuick);
+  $('#copy-form').addEventListener('submit', submitCopy);
+  $('#copy-form').addEventListener('input', updateCopyPreview);
+  $('#save-meal-form').addEventListener('submit', submitSaveMeal);
 
   $('#exercise-form').addEventListener('submit', submitExercise);
   $('#exercise-form').addEventListener('input', e => { if (e.target.name !== 'kcal' && e.target.name !== 'name') exerciseEstimate(); });
